@@ -8,13 +8,43 @@ fun main() {
     val dir = println("Enter .git directory location:").run { readln() }
     val hash = println("Enter git object hash:").run { readln() }
     val path = "$dir/objects/${hash.take(2)}/${hash.drop(2)}"
-    val content = InflaterInputStream(FileInputStream(path)).readBytes()
+    val content =
+        InflaterInputStream(FileInputStream(path)).readBytes()
     val type = String(content.sliceArray(0 until content.indexOf(0))).split(' ')[0]
     val bytes = content.slice(content.indexOf(0) + 1 until content.size).toByteArray()
+
     when (type) {
         "blob" -> println(Blob(bytes))
         "commit" -> println(Commit(bytes))
+        "tree" -> println(Tree(bytes))
     }
+}
+
+class Tree(private val bytes: ByteArray) {
+    data class TreeEntry(val permissionsMetadata: String, val filename: String, val sha1: String) {
+        override fun toString(): String = "$permissionsMetadata $sha1 $filename"
+    }
+
+    private val entries: Set<TreeEntry> = scanEntries()
+
+    private fun scanEntries(): Set<TreeEntry> {
+        // [firstPermissionNumber][space][firstFileName][nullChar][firstHash][secondPermissionNumber][space][secondFileName][nullChar][secondHash][thirdPermissionNumber]...
+        val result = mutableSetOf<TreeEntry>()
+        var startPos = 0 // index of entry start
+        bytes.forEachIndexed { index, byte ->
+            if (byte == 0.toByte() && index > startPos) {
+                val info = String(bytes.slice(startPos until index).toByteArray()).split(" ")
+                startPos = index + 21
+                result.add(
+                    TreeEntry(info.component1(), info.component2(),
+                        bytes.slice(index + 1 until startPos).joinToString("") { "%02x".format(it) })
+                )
+            }
+        }
+        return result
+    }
+
+    override fun toString() = "*TREE*\n${entries.joinToString("\n")}"
 }
 
 class Blob(private val bytes: ByteArray) {
@@ -42,7 +72,7 @@ class Commit(bytes: ByteArray) {
     private fun scanMessage(): String {
         sc.nextLine()
         val lines = mutableListOf<String>()
-        while(sc.hasNextLine()) lines.add(sc.nextLine())
+        while (sc.hasNextLine()) lines.add(sc.nextLine())
         return lines.joinToString("\n")
     }
 
