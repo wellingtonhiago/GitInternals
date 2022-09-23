@@ -1,3 +1,4 @@
+import java.io.File
 import java.io.FileInputStream
 import java.time.*
 import java.time.format.DateTimeFormatter
@@ -6,17 +7,34 @@ import java.util.zip.InflaterInputStream
 
 fun main() {
     val dir = println("Enter .git directory location:").run { readln() }
-    val hash = println("Enter git object hash:").run { readln() }
-    val path = "$dir/objects/${hash.take(2)}/${hash.drop(2)}"
-    val content =
-        InflaterInputStream(FileInputStream(path)).readBytes()
-    val type = String(content.sliceArray(0 until content.indexOf(0))).split(' ')[0]
-    val bytes = content.slice(content.indexOf(0) + 1 until content.size).toByteArray()
 
-    when (type) {
-        "blob" -> println(Blob(bytes))
-        "commit" -> println(Commit(bytes))
-        "tree" -> println(Tree(bytes))
+    when (println("Enter command:").run { readln() }) {
+        "cat-file" -> {
+            val hash = println("Enter git object hash:").run { readln() }
+            val path = "$dir/objects/${hash.take(2)}/${hash.drop(2)}"
+            val content =
+                InflaterInputStream(FileInputStream(path)).readBytes()
+            val type = String(content.sliceArray(0 until content.indexOf(0))).split(' ')[0]
+            val bytes = content.slice(content.indexOf(0) + 1 until content.size).toByteArray()
+
+            when (type) {
+                "blob" -> println(Blob(bytes))
+                "commit" -> println(Commit(bytes))
+                "tree" -> println(Tree(bytes))
+            }
+        }
+        "list-branches" -> {
+            val path = "$dir/refs/heads"
+            val branches = File(path).listFiles().map { it.name }.sorted()
+            val currentBranch = File("$dir/HEAD").readText().split('/').last().trim()
+
+            branches.forEach {
+                if (it == currentBranch) println("* $it")
+                else println("  $it")
+            }
+        }
+
+        else -> println("Unknown command")
     }
 }
 
