@@ -19,7 +19,7 @@ fun main() {
 
             when (type) {
                 "blob" -> println(Blob(bytes))
-                "commit" -> println(Commit(bytes))
+                "commit" -> println(Commit(bytes, hash))
                 "tree" -> println(Tree(bytes))
             }
         }
@@ -33,8 +33,27 @@ fun main() {
                 else println("  $it")
             }
         }
+        "log" -> {
+            val branch = println("Enter branch name:").run { readln() }
+            val path = "$dir/refs/heads/$branch"
+            val latestCommitHash = File(path).readText().trim()
+            val commit = Commit.fromGitObject(latestCommitHash, dir)
+
+            printCommitLog(commit, dir)
+        }
 
         else -> println("Unknown command")
+    }
+}
+
+fun printCommitLog(commit: Commit, dir: String) {
+    println(commit.toLogString())
+
+    if (commit.parents.size == 2) {
+        println(Commit.fromGitObject(commit.parents.last(), dir).toLogString(true))
+    }
+    if (commit.parents.isNotEmpty()) {
+        printCommitLog(Commit.fromGitObject(commit.parents.first(), dir), dir)
     }
 }
 
@@ -69,10 +88,10 @@ class Blob(private val bytes: ByteArray) {
     override fun toString() = "*BLOB*\n${String(bytes)}"
 }
 
-class Commit(bytes: ByteArray) {
+class Commit(bytes: ByteArray, private val hash: String) {
     private val sc = Scanner(String(bytes))
     private val tree = Pair(sc.next(), sc.next()).second
-    private val parents = scanParents()
+    val parents = scanParents()
     private val authorName = sc.next()
     private val authorEmail = sc.next().filter { it != '>' && it != '<' }
     private val originalTime = ZonedDateTime.ofInstant(Instant.ofEpochSecond(sc.nextLong()), ZoneId.of(sc.next()))
@@ -103,5 +122,32 @@ class Commit(bytes: ByteArray) {
         result.append("committer: $committerName $committerEmail commit timestamp: ${commitTime.format(formatter)}\n")
         result.append("commit message:$message")
         return result.toString()
+    }
+
+    fun toLogString(showMergedBadge: Boolean = false): String {
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+        val result = StringBuilder()
+        result.append("Commit: $hash")
+        result.append(if (showMergedBadge) " (merged)\n" else "\n")
+
+        result.append("$committerName $committerEmail commit timestamp: ${commitTime.format(formatter)}\n")
+        result.append(message.trim())
+        result.append("\n")
+
+        return result.toString()
+    }
+
+    companion object {
+        fun fromGitObject(hash: String, dir: String): Commit {
+            val path = "$dir/objects/${hash.take(2)}/${hash.drop(2)}"
+            val content =
+                InflaterInputStream(FileInputStream(path)).readBytes()
+            val type = String(content.sliceArray(0 until content.indexOf(0))).split(' ')[0]
+
+            if (type != "commit") throw IllegalArgumentException("Git object is not a commit")
+            val bytes = content.slice(content.indexOf(0) + 1 until content.size).toByteArray()
+
+            return Commit(bytes, hash)
+        }
     }
 }
