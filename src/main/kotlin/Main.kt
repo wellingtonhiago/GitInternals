@@ -20,7 +20,7 @@ fun main() {
             when (type) {
                 "blob" -> println(Blob(bytes))
                 "commit" -> println(Commit(bytes, hash))
-                "tree" -> println(Tree(bytes))
+                "tree" -> println(Tree(bytes, hash))
             }
         }
         "list-branches" -> {
@@ -41,6 +41,13 @@ fun main() {
 
             printCommitLog(commit, dir)
         }
+        "commit-tree" -> {
+            val commitHash = println("Enter commit-hash:").run { readln() }
+            val commit = Commit.fromGitObject(commitHash, dir)
+            val treeHash = commit.tree
+
+            printFullTree(Tree.fromGitObject(treeHash, dir), dir)
+        }
 
         else -> println("Unknown command")
     }
@@ -57,12 +64,27 @@ fun printCommitLog(commit: Commit, dir: String) {
     }
 }
 
-class Tree(private val bytes: ByteArray) {
+fun printFullTree(tree: Tree, dir: String, indent: String = "") {
+    tree.entries.forEach {
+        val path = "$dir/objects/${it.sha1.take(2)}/${it.sha1.drop(2)}"
+        val content =
+            InflaterInputStream(FileInputStream(path)).readBytes()
+
+        when (String(content.sliceArray(0 until content.indexOf(0))).split(' ')[0]) {
+            "blob" -> println("$indent${it.filename}")
+            "tree" -> {
+                printFullTree(Tree.fromGitObject(it.sha1, dir), dir, "${it.filename}/")
+            }
+        }
+    }
+}
+
+class Tree(private val bytes: ByteArray, hash: String) {
     data class TreeEntry(val permissionsMetadata: String, val filename: String, val sha1: String) {
         override fun toString(): String = "$permissionsMetadata $sha1 $filename"
     }
 
-    private val entries: Set<TreeEntry> = scanEntries()
+    val entries: Set<TreeEntry> = scanEntries()
 
     private fun scanEntries(): Set<TreeEntry> {
         // [firstPermissionNumber][space][firstFileName][nullChar][firstHash][secondPermissionNumber][space][secondFileName][nullChar][secondHash][thirdPermissionNumber]...
@@ -82,6 +104,20 @@ class Tree(private val bytes: ByteArray) {
     }
 
     override fun toString() = "*TREE*\n${entries.joinToString("\n")}"
+
+    companion object {
+        fun fromGitObject(hash: String, dir: String): Tree {
+            val path = "$dir/objects/${hash.take(2)}/${hash.drop(2)}"
+            val content =
+                InflaterInputStream(FileInputStream(path)).readBytes()
+            val type = String(content.sliceArray(0 until content.indexOf(0))).split(' ')[0]
+
+            if (type != "tree") throw IllegalArgumentException("Git object is not a commit")
+            val bytes = content.slice(content.indexOf(0) + 1 until content.size).toByteArray()
+
+            return Tree(bytes, hash)
+        }
+    }
 }
 
 class Blob(private val bytes: ByteArray) {
@@ -90,7 +126,7 @@ class Blob(private val bytes: ByteArray) {
 
 class Commit(bytes: ByteArray, private val hash: String) {
     private val sc = Scanner(String(bytes))
-    private val tree = Pair(sc.next(), sc.next()).second
+    val tree = Pair(sc.next(), sc.next()).second
     val parents = scanParents()
     private val authorName = sc.next()
     private val authorEmail = sc.next().filter { it != '>' && it != '<' }
